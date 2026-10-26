@@ -36,6 +36,7 @@ class YouTubeGuardService : AccessibilityService() {
     private var confirmedAt: Long? = null
     private var confirmedZone: String? = null
     private var lastApp: String? = null
+    private var lastAppEventTime = 0L
     private var leaving = false
     private var settingsJob: Job? = null
     private var registered = false
@@ -55,6 +56,9 @@ class YouTubeGuardService : AccessibilityService() {
 
     override fun onServiceConnected() {
         reset()
+        leaving = false
+        lastApp = null
+        lastAppEventTime = 0L
         ProtectionStatus.connected.value = true
         ProtectionStatus.failure.value = null
         updateKeyboards()
@@ -82,16 +86,23 @@ class YouTubeGuardService : AccessibilityService() {
         if (app in imePackages || app in transientPackages) return
         // Own overlay also produces window events. Only the actual app activity ends a session.
         if (app == packageName && event.className?.toString() != "com.example.youtubeblocker.MainActivity") return
+        // A disappearing pane is not a foreground transition. It can arrive after Home.
+        if (event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_PANE_DISAPPEARED != 0) return
+        if (event.eventTime < lastAppEventTime) return
+        if (leaving && app == ProtectionStatus.YOUTUBE) return
+        lastAppEventTime = event.eventTime
         lastApp = app
         if (app == ProtectionStatus.YOUTUBE) {
-            if (!leaving) showGate()
+            showGate()
         } else {
-            leaving = false
+            // Home is asynchronous: remove the overlay only once another app is visible.
             reset()
+            leaving = false
         }
     }
 
     private fun showGate() {
+        if (leaving) return
         if (!gate.enter()) return
         reason = ""
         minimum = null
@@ -139,6 +150,7 @@ class YouTubeGuardService : AccessibilityService() {
     }
 
     private fun confirm() {
+        if (leaving) return
         val required = minimum ?: return
         if (!ReasonRules.valid(reason, required)) return
         val token = gate.beginSave() ?: return
@@ -168,11 +180,14 @@ class YouTubeGuardService : AccessibilityService() {
     }
 
     private fun cancel() {
-        if (saving) return
+        if (saving || leaving) return
+        leaving = true
         if (performGlobalAction(GLOBAL_ACTION_HOME)) {
-            leaving = true
-            reset()
+            // Keep covering YouTube until the launcher arrives. Removing this window now
+            // briefly restores YouTube's focus and queues a spurious new-entry event.
+            lastApp = null
         } else {
+            leaving = false
             error = "Не удалось перейти на главный экран. Используйте системную кнопку «Домой»."
         }
     }
