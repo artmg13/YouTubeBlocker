@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Осознанный YouTube</string>
+    <string name="accessibility_description">Показывает вопрос о цели при открытии YouTube. Определяет смену активного приложения, не читает содержимое экранов. Причины сохраняются только на устройстве. Сервис можно отключить в любой момент.</string>
+</resources>
